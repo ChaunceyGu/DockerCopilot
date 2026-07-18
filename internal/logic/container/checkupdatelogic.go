@@ -2,10 +2,12 @@ package container
 
 import (
 	"context"
+	"strings"
 
 	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
 	"github.com/ChaunceyGu/DockerCopilot/internal/types"
 	"github.com/ChaunceyGu/DockerCopilot/internal/utiles"
+	"github.com/docker/docker/api/types/image"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -37,7 +39,7 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 		return resp, nil
 	}
 
-	// 2. 构造镜像信息结构
+	// 2. 获取容器使用的镜像ID
 	imageID := containerInspect.Image
 	if imageID == "" {
 		resp.Code = 400
@@ -46,8 +48,8 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 		return resp, nil
 	}
 
-	// 获取镜像详情
-	imageInfo, err := utiles.GetImageInfo(l.svcCtx, imageID)
+	// 3. 通过 Docker API 获取镜像详情
+	imageInspect, _, err := l.svcCtx.DockerClient.ImageInspectWithRaw(context.Background(), imageID)
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = "获取镜像详情失败"
@@ -55,10 +57,40 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 		return resp, nil
 	}
 
-	// 3. 调用更新检查
-	l.svcCtx.HubImageInfo.CheckUpdate([]types.Image{imageInfo})
+	// 4. 构造 types.Image 结构
+	var imageName, imageTag string
+	if len(imageInspect.RepoTags) > 0 {
+		parts := strings.Split(imageInspect.RepoTags[0], ":")
+		if len(parts) == 2 {
+			imageName = parts[0]
+			imageTag = parts[1]
+		}
+	} else if len(imageInspect.RepoDigests) > 0 {
+		imageName = strings.Split(imageInspect.RepoDigests[0], "@")[0]
+		imageTag = "None"
+	}
 
-	// 4. 读取检查结果
+	if imageName == "" {
+		resp.Code = 400
+		resp.Msg = "无法解析镜像名称"
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+
+	imgInfo := types.Image{
+		Summary: image.Summary{
+			ID:          imageInspect.ID,
+			RepoTags:    imageInspect.RepoTags,
+			RepoDigests: imageInspect.RepoDigests,
+		},
+		ImageName: imageName,
+		ImageTag:  imageTag,
+	}
+
+	// 5. 调用更新检查
+	l.svcCtx.HubImageInfo.CheckUpdate([]types.Image{imgInfo})
+
+	// 6. 读取检查结果
 	updateStatus, exists := l.svcCtx.HubImageInfo.Get(imageID)
 	haveUpdate := exists && updateStatus.NeedUpdate
 
