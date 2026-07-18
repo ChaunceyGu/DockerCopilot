@@ -76,6 +76,7 @@ export function Containers() {
   const [updateTasks, setUpdateTasks] = useState({}) // 跟踪更新任务
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
+  const [checkingUpdate, setCheckingUpdate] = useState({}) // 跟踪每个容器的检查更新状态
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -457,6 +458,45 @@ export function Containers() {
   }
 
   // 轮询进度
+  // 手动检查单个容器是否有更新
+  const handleCheckUpdate = async (containerId) => {
+    setCheckingUpdate(prev => ({ ...prev, [containerId]: true }))
+    try {
+      const response = await containerAPI.checkUpdate(containerId)
+      if (response.data.code === 200) {
+        const haveUpdate = response.data.data?.haveUpdate || false
+        // 更新容器列表中的 haveUpdate 状态
+        setContainers(prev => prev.map(c => 
+          c.id === containerId ? { ...c, haveUpdate } : c
+        ))
+        // 显示结果提示
+        setConfirmModal({
+          isOpen: true,
+          title: haveUpdate ? '发现新版本' : '已是最新',
+          message: haveUpdate ? '该容器的镜像有新版本可用' : '该容器使用的镜像已是最新版本',
+          onConfirm: () => setConfirmModal({ isOpen: false }),
+          onCancel: null,
+          type: haveUpdate ? 'warning' : 'info'
+        })
+      } else {
+        throw new Error(response.data.msg || '检查失败')
+      }
+    } catch (error) {
+      console.error('检查更新失败:', error)
+      setConfirmModal({
+        isOpen: true,
+        title: '检查失败',
+        message: error.response?.data?.msg || error.message || '无法检查更新',
+        onConfirm: () => setConfirmModal({ isOpen: false }),
+        onCancel: null,
+        type: 'danger'
+      })
+    } finally {
+      setCheckingUpdate(prev => ({ ...prev, [containerId]: false }))
+    }
+  }
+
+
   const pollProgress = async (containerId, taskID) => {
     // 后端拉取镜像超时为 30 分钟，前端轮询窗口要覆盖它，
     // 否则大镜像/慢网络下前端会提前放弃、进度条卡死，而后端其实还在拉。
@@ -1130,6 +1170,20 @@ export function Containers() {
                               >
                                 <Upload className="h-4 w-4" />
                                 <span>更新</span>
+                              </button>
+
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleCheckUpdate(container.id) }}
+                                disabled={checkingUpdate[container.id]}
+                                className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="检查更新"
+                              >
+                                {checkingUpdate[container.id] ? (
+                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-4 w-4" />
+                                )}
+                                <span>检查</span>
                               </button>
                             </>
                           )}

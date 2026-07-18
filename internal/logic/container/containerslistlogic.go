@@ -76,7 +76,7 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		}
 		t := time.Unix(v.Created, 0)
 		containerInfo.CreateTime = t.Format("2006-01-02 15:04:05")
-		containerInfo.RunningTime = v.Status
+		containerInfo.RunningTime = parseRunningTime(v.Status)
 		containerInfo.HaveUpdate = v.Update
 		containerInfoList[i] = containerInfo
 
@@ -100,4 +100,70 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 
 	resp.Data = containerInfoList
 	return resp, nil
+
+// parseRunningTime 把 Docker Status 字符串解析成中文格式 "X天X小时X分钟"。
+// 例如:
+//   "Up 5 days" -> "5天"
+//   "Up 2 hours 30 minutes" -> "2小时30分钟"
+//   "Up About a minute" -> "1分钟"
+//   "Up 45 seconds" -> "0分钟"  (不到1分钟统一显示0分钟)
+//   "Exited (0) 3 hours ago" -> "已停止"
+func parseRunningTime(status string) string {
+	status = strings.TrimSpace(status)
+	
+	// 如果不是 Up 开头，说明容器停止或其他状态
+	if !strings.HasPrefix(status, "Up ") {
+		return "已停止"
+	}
+	
+	// 移除 "Up " 前缀
+	s := strings.TrimPrefix(status, "Up ")
+	s = strings.ToLower(s)
+	
+	// 处理 "About a minute" 这种模糊表达
+	if strings.Contains(s, "about") && strings.Contains(s, "minute") {
+		return "1分钟"
+	}
+	
+	var days, hours, minutes int
+	
+	// 正则提取天数
+	dayRe := regexp.MustCompile(`(\d+)\s*days?`)
+	if m := dayRe.FindStringSubmatch(s); len(m) > 1 {
+		days, _ = strconv.Atoi(m[1])
+	}
+	
+	// 正则提取小时
+	hourRe := regexp.MustCompile(`(\d+)\s*hours?`)
+	if m := hourRe.FindStringSubmatch(s); len(m) > 1 {
+		hours, _ = strconv.Atoi(m[1])
+	}
+	
+	// 正则提取分钟
+	minRe := regexp.MustCompile(`(\d+)\s*minutes?`)
+	if m := minRe.FindStringSubmatch(s); len(m) > 1 {
+		minutes, _ = strconv.Atoi(m[1])
+	}
+	
+	// 秒级的不显示(少于1分钟统一记为0分钟)
+	
+	// 组装结果
+	var parts []string
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%d天", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%d小时", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%d分钟", minutes))
+	}
+	
+	if len(parts) == 0 {
+		return "0分钟"
+	}
+	return strings.Join(parts, "")
+}
+
+
 }
