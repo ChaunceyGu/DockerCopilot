@@ -1,0 +1,11 @@
+# 此 workflow 已废弃，被 build.yml 取代（单仓库多架构构建）。
+# 保留为空占位以防触发；请在本地删除此文件。
+# This workflow is deprecated, replaced by build.yml. Safe to delete.
+name: deprecated-docker-build-push-latest-stable
+on:
+  workflow_dispatch:
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This workflow is deprecated. See build.yml."

@@ -1,0 +1,24 @@
+# 构建上下文排除项，避免把无关文件塞进 Docker 构建
+
+# 前端源码由 Dockerfile 阶段1 单独 COPY，这里排除其依赖和产物
+frontend/node_modules
+frontend/dist
+
+# 本地生成的前端 embed 产物（CI 里由前端阶段重新生成）
+front
+
+# Go 相关
+*.exe
+*.test
+*.out
+
+# 版本控制与 IDE
+.git
+.github
+.idea
+.vscode
+**/.DS_Store
+
+# 文档
+*.md
+docs
