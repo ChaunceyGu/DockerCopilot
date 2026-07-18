@@ -11,6 +11,7 @@ import (
 	icons "github.com/ChaunceyGu/DockerCopilot/internal/handler/icons"
 	image "github.com/ChaunceyGu/DockerCopilot/internal/handler/image"
 	progress "github.com/ChaunceyGu/DockerCopilot/internal/handler/progress"
+	settings "github.com/ChaunceyGu/DockerCopilot/internal/handler/settings"
 	version "github.com/ChaunceyGu/DockerCopilot/internal/handler/version"
 	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
 
@@ -157,6 +158,23 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodGet,
 				Path:    "/version",
 				Handler: version.VersionHandler(serverCtx),
+			},
+		},
+		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
+		rest.WithPrefix("/api"),
+	)
+
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				Method:  http.MethodGet,
+				Path:    "/settings",
+				Handler: settings.GetSettingsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/settings",
+				Handler: settings.SaveSettingsHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),

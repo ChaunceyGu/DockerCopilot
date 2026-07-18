@@ -458,7 +458,10 @@ export function Containers() {
 
   // 轮询进度
   const pollProgress = async (containerId, taskID) => {
-    const maxAttempts = 60 // 最多轮询60次 (2分钟)
+    // 后端拉取镜像超时为 30 分钟，前端轮询窗口要覆盖它，
+    // 否则大镜像/慢网络下前端会提前放弃、进度条卡死，而后端其实还在拉。
+    // 每 2 秒一次，30 分钟 = 900 次。
+    const maxAttempts = 900
     let attempts = 0
     let pollTimer = null
 
@@ -479,82 +482,53 @@ export function Containers() {
       })
     }
 
+    // 统一的失败展示：既清理进度状态，又弹窗告知用户失败原因（含详细日志）。
+    const showFailure = (message, detail) => {
+      clearPollState()
+      const full = detail && detail !== message ? `${message}\n\n详细信息：\n${detail}` : message
+      setConfirmModal({
+        isOpen: true,
+        title: '更新失败',
+        message: full,
+        onConfirm: () => setConfirmModal({ isOpen: false }),
+        onCancel: null,
+        type: 'danger'
+      })
+    }
+
     const poll = async () => {
       try {
         attempts++
         const response = await progressAPI.getProgress(taskID)
-        console.log(`进度查询[${attempts}/${maxAttempts}]:`, response.data)
-
         const data = response.data
+        const d = data.data || {}
 
-        // 提取进度信息
-        let progressMsg = '处理中...'
+        // 进度消息：优先详细日志(detailMsg)，其次普通消息
+        const progressMsg = d.detailMsg || d.message || data.msg || '处理中...'
+        // 百分比直接用后端的 percentage
         let percentage = 0
-
-        if (data.data?.progress) {
-          progressMsg = data.data.progress
-        } else if (data.data?.message) {
-          progressMsg = data.data.message
-        } else if (data.msg) {
-          progressMsg = data.msg
+        if (d.percentage !== undefined && d.percentage !== null) {
+          percentage = Math.min(100, Math.max(0, parseFloat(d.percentage)))
         }
 
-        // 提取百分比
-        if (data.data?.percentage !== undefined) {
-          percentage = Math.min(100, Math.max(0, parseFloat(data.data.percentage)))
-        } else if (data.data?.percent !== undefined) {
-          percentage = Math.min(100, Math.max(0, parseFloat(data.data.percent)))
-        } else {
-          // 尝试从进度消息中提取百分比
-          const percentMatch = progressMsg.match(/(\d+(?:\.\d+)?)\s*%/)
-          if (percentMatch) {
-            percentage = Math.min(100, Math.max(0, parseFloat(percentMatch[1])))
-          } else {
-            // 根据轮询次数估算进度
-            percentage = Math.min(95, (attempts / maxAttempts) * 100)
-          }
+        // 完成/失败判定完全依赖后端字段，不再靠关键词猜测
+        const isDone = d.isDone === true
+        const isError = d.isError === true || data.code === 500 || data.code === 400
+
+        if (isDone && isError) {
+          console.error('容器更新失败，停止轮询')
+          showFailure(d.message || data.msg || '更新失败', d.detailMsg)
+          return
         }
 
-        // 检查是否完成 - 兼容多种响应格式
-        const status = data.data?.status || data.status
-        const isDone = data.data?.isDone === true ||
-          status === 'completed' ||
-          status === 'success' ||
-          status === 'done' ||
-          status === 'finish' ||
-          status === 'finished'
-
-        // 检查是否失败
-        const isFailed = status === 'failed' ||
-          status === 'error' ||
-          progressMsg.includes('失败') ||
-          progressMsg.includes('错误') ||
-          data.code === 500 ||
-          data.code === 400
-
-        const isCompleted = isDone && !isFailed
-
-        if (isCompleted) {
-          // 任务完成 - 立即停止轮询
+        if (isDone && !isError) {
           console.log('容器更新完成，停止轮询')
           clearPollState()
           await refetch()
-          console.log('✅ 容器更新完成!')
-          return // 确保不再继续执行
+          return
         }
 
-        if (isFailed) {
-          // 任务失败 - 立即停止轮询
-          console.log('容器更新失败，停止轮询')
-          clearPollState()
-          // 添加更详细的错误信息
-          const errorMsg = data.data?.error || data.data?.message || data.msg || '更新失败'
-          console.error(`❌ 更新失败: ${errorMsg}`)
-
-          return // 确保不再继续执行
-        }
-
-        // 更新容器操作状态，显示进度
+        // 更新进度显示（含详细拉取日志）
         setContainerActions(prev => ({
           ...prev,
           [containerId]: {
@@ -565,20 +539,15 @@ export function Containers() {
           }
         }))
 
-        // 继续轮询
         if (attempts < maxAttempts) {
-          pollTimer = setTimeout(poll, 2000) // 2秒后再次查询
+          pollTimer = setTimeout(poll, 2000)
         } else {
-          clearPollState()
-          console.error('⏱️ 更新超时，请检查容器状态')
-
+          showFailure('更新超时', '超过 30 分钟仍未完成，请检查网络或 Docker 状态后手动刷新查看容器状态')
         }
       } catch (error) {
         console.error('查询进度失败:', error)
-        clearPollState()
-        console.error(`❌ 更新失败: ${error.response?.data?.msg || error.message}`)
-        // 显示网络错误或其他异常情况的友好提示
-
+        // taskID 未找到（后端重启或任务过期）等异常
+        showFailure('查询更新进度失败', error.response?.data?.msg || error.message)
       }
     }
 

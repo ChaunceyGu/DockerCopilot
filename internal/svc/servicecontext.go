@@ -30,6 +30,9 @@ type TaskProgress struct {
 	Name       string
 	DetailMsg  string
 	IsDone     bool
+	// IsError 标记任务是否以失败结束（IsDone=true 时才有意义）。
+	// 前端据此区分「完成」与「失败」，避免把失败当成功。
+	IsError bool
 }
 
 type ProgressStoreType map[string]TaskProgress

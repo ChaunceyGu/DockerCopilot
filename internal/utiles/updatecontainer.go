@@ -23,8 +23,6 @@ const (
 )
 
 // progressReporter 统一封装任务进度上报。
-// 之前的代码到处做「读旧进度 -> 改字段 -> 写回」，一旦中途 return 就会留下过期状态，
-// 而且 Name/TaskID 容易丢。这里每次都写全字段，简单且不会串味。
 type progressReporter struct {
 	svcCtx *svc.ServiceContext
 	taskID string
@@ -60,6 +58,7 @@ func (p *progressReporter) fail(percentage int, message string, err error) {
 		Message:    message,
 		DetailMsg:  detail,
 		IsDone:     true,
+		IsError:    true,
 	})
 }
 
@@ -82,11 +81,13 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 	pr.set(0, "正在连接Docker", "正在连接Docker")
 
 	// ---- 1. 拉取新镜像（整体进度 10% -> 30%）----
-	pr.set(10, "正在拉取新镜像", "正在拉取新镜像")
+	// 若用户在设置里配置了镜像加速器，改写成走加速器拉取（国内网络更稳）。
+	pullImage := ApplyRegistryMirror(imageNameAndTag)
+	pr.set(10, "正在拉取新镜像", "正在拉取新镜像 "+pullImage)
 	pullCtx, cancelPull := context.WithTimeout(context.Background(), pullTimeout)
 	defer cancelPull()
 	cli.NegotiateAPIVersion(pullCtx)
-	reader, err := cli.ImagePull(pullCtx, imageNameAndTag, image.PullOptions{})
+	reader, err := cli.ImagePull(pullCtx, pullImage, image.PullOptions{})
 	if err != nil {
 		pr.fail(10, "拉取镜像失败", err)
 		logx.Errorf("Failed to pull image: %s", err)
@@ -96,6 +97,18 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		pr.fail(10, "拉取镜像失败", err)
 		logx.Errorf("Failed to pull image: %s", err)
 		return err
+	}
+	// 若走了镜像加速器，拉下来的本地镜像名是加速器地址，需要重新打回原始 tag，
+	// 否则后面用原名创建容器会找不到镜像。
+	if pullImage != imageNameAndTag {
+		tagCtx, cancelTag := context.WithTimeout(context.Background(), dockerOpTimeout)
+		if terr := cli.ImageTag(tagCtx, pullImage, imageNameAndTag); terr != nil {
+			cancelTag()
+			pr.fail(30, "镜像重命名失败", terr)
+			logx.Errorf("ImageTag %s -> %s 失败: %v", pullImage, imageNameAndTag, terr)
+			return terr
+		}
+		cancelTag()
 	}
 	pr.set(30, "拉取镜像成功", "拉取镜像成功")
 
@@ -138,7 +151,6 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 			logx.Errorf("回滚：重新启动旧容器失败: %v", rerrStart)
 		}
 	}
-
 	// ---- 4. 创建新容器（60% -> 80%）----
 	pr.set(60, "正在创建新容器", "正在创建新容器")
 	inspectCtx, cancelInspect := context.WithTimeout(context.Background(), dockerOpTimeout)
@@ -189,7 +201,7 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 	if delOldContainer {
 		pr.set(90, "正在删除旧容器", "正在删除旧容器")
 		rmCtx, cancelRm := context.WithTimeout(context.Background(), dockerOpTimeout)
-		err = cli.ContainerRemove(rmCtx, id, container.RemoveOptions{})
+		err = cli.ContainerRemove(rmCtx, id, container.RemoveOptions{Force: true})
 		cancelRm()
 		if err != nil {
 			// 新容器已经起来了，删旧容器失败不致命：提示用户手动清理，不算更新失败。
@@ -204,8 +216,6 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 }
 
 // decodePullResp 解析 docker pull 的流式响应，并把逐层进度聚合成整体百分比。
-// 之前的实现把百分比死死钉在 25%，界面看起来就像卡住了；这里按各层已完成/总量
-// 估算一个 0~100% 的比例，再映射到整体进度的 10%~30% 区间，让进度条平滑推进。
 func decodePullResp(reader io.Reader, pr *progressReporter) error {
 	decoder := json.NewDecoder(reader)
 	// 记录每一层的下载/解压进度，用于聚合出一个总体百分比。

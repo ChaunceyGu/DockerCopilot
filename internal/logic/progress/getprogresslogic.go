@@ -25,7 +25,6 @@ func NewGetProgressLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetPr
 
 func (l *GetProgressLogic) GetProgress(req *types.GetProgressReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	//progress, exists := l.svcCtx.ProgressStore[req.TaskId]
 	progress, exists := l.svcCtx.GetProgress(req.TaskId)
 	if !exists {
 		resp.Code = 400
@@ -42,6 +41,7 @@ func (l *GetProgressLogic) GetProgress(req *types.GetProgressReq) (resp *types.R
 		"name":       progress.Name,
 		"detailMsg":  progress.DetailMsg,
 		"isDone":     progress.IsDone,
+		"isError":    progress.IsError,
 	}
 	return resp, nil
 }
