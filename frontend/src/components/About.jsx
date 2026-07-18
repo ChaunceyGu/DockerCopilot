@@ -1,5 +1,5 @@
 import React from 'react'
-import { Github, Mail, Heart, MessageSquare } from 'lucide-react'
+import { Github, Heart, MessageSquare } from 'lucide-react'
 import wechatImg from '../assets/wechat.png'
 import alipayImg from '../assets/alipay.png'
 import logoImg from '../assets/DockerCopilot-logo.png'
@@ -27,20 +27,13 @@ export function About() {
 
           <div className="flex flex-wrap items-center justify-center gap-3">
             <a
-              href="https://github.com/onlyLTY/dockercopilot"
+              href="https://github.com/Chaunceygu/DockerCopilot"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm"
             >
               <Github className="h-4 w-4" />
               <span>GitHub</span>
-            </a>
-            <a
-              href="mailto:onlylty@lty.wiki"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-            >
-              <Mail className="h-4 w-4" />
-              <span>联系作者</span>
             </a>
           </div>
         </div>
@@ -67,7 +60,7 @@ export function About() {
               在项目使用中遇到 Bug 或有新的功能想法？欢迎提交 Issue 或直接联系我。您的每一个反馈都至关重要。
             </p>
             <a
-              href="https://github.com/onlyLTY/dockercopilot/issues"
+              href="https://github.com/Chaunceygu/DockerCopilot/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center text-primary-600 dark:text-primary-400 hover:underline font-medium"

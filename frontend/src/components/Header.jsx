@@ -270,11 +270,10 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                   <span className="w-3 h-3 rounded-full bg-emerald-500 shadow-sm shadow-emerald-400/50 dark:shadow-emerald-600/50" title={`运行中 - ${backendVersion || 'v1.0'}`} />
                 </div>
 
-                {/* 开发人员 - 首字母 */}
+                {/* 维护者 - 首字母 */}
                 <div className="flex justify-center">
                   <div className="flex -space-x-1.5">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/40 text-[10px] font-semibold text-blue-600 dark:text-blue-400 ring-2 ring-white dark:ring-gray-800">D</span>
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/40 text-[10px] font-semibold text-purple-600 dark:text-purple-400 ring-2 ring-white dark:ring-gray-800">O</span>
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/40 text-[10px] font-semibold text-blue-600 dark:text-blue-400 ring-2 ring-white dark:ring-gray-800">C</span>
                   </div>
                 </div>
 
@@ -302,16 +301,10 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                   </div>
                 </div>
 
-                {/* 团队信息 - 紧凑两列 */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 px-2.5 py-2">
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500">前端</span>
-                    <p className="text-xs font-medium text-gray-800 dark:text-gray-200 mt-0.5">DongShu</p>
-                  </div>
-                  <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 px-2.5 py-2">
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500">后端</span>
-                    <p className="text-xs font-medium text-gray-800 dark:text-gray-200 mt-0.5">onlyLTY</p>
-                  </div>
+                {/* 维护者信息 */}
+                <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 px-2.5 py-2">
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">维护者</span>
+                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 mt-0.5">Chaunceygu</p>
                 </div>
 
                 {/* 构建日期 + 更新提示 */}

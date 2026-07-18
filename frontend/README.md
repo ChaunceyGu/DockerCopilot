@@ -216,7 +216,7 @@ docker run -d \
   -e VITE_API_BASE_URL=http://192.168.50.4:12712 \
   -e NODE_ENV=production \
   -v /vol1/1000/DSpace/DockerCopilot/DCF:/app/src/config:rw \
-  dongshull/docker-copilot-frontend:latest
+  chaunceygu178/dockercopilot:latest
 ```
 
 ### 使用 Docker Compose
@@ -228,7 +228,7 @@ version: '3.8'
 
 services:
   docker-copilot-frontend:
-    image: dongshull/docker-copilot-frontend:latest
+    image: chaunceygu178/dockercopilot:latest
     container_name: dcf
     restart: always
     network_mode: bridge
@@ -311,4 +311,3 @@ export const customImageLogos = {
    ```bash
    docker logs dcf
    ```
-   

@@ -52,7 +52,7 @@ func (i *ImageUpdateData) set(imageID string, v ImageCheckList) {
 
 func (i *ImageUpdateData) CheckUpdate(imageList []types.Image) {
 	for _, image := range imageList {
-		if strings.Contains(image.ImageName, "0nlylty/dockercopilot") {
+		if strings.Contains(image.ImageName, "chaunceygu178/dockercopilot") {
 			continue
 		}
 		i.checkSingleImage(image)
