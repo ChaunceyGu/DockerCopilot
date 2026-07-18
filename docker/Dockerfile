@@ -41,14 +41,14 @@ COPY --from=frontend /app/frontend/dist/ ./front/
 # 交叉编译静态二进制
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -a --trimpath \
-    -ldflags="-w -s -X 'github.com/onlyLTY/dockerCopilot/internal/config.Version=${VERSION}' -X 'github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
+    -ldflags="-w -s -X 'github.com/ChaunceyGu/DockerCopilot/internal/config.Version=${VERSION}' -X 'github.com/ChaunceyGu/DockerCopilot/internal/config.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
     -o /out/dockerCopilot .
 
 # ============================================================
 # 阶段 3：运行镜像（alpine）
 # ============================================================
 FROM alpine
-LABEL org.opencontainers.image.source="https://github.com/onlyLTY/dockerCopilot"
+LABEL org.opencontainers.image.source="https://github.com/ChaunceyGu/DockerCopilot"
 WORKDIR /app
 
 COPY --from=backend /out/dockerCopilot ./dockerCopilot

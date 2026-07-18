@@ -2,10 +2,10 @@ package container
 
 import (
 	"context"
+	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
+	"github.com/ChaunceyGu/DockerCopilot/internal/types"
+	"github.com/ChaunceyGu/DockerCopilot/internal/utiles"
 	"github.com/google/uuid"
-	"github.com/onlyLTY/dockerCopilot/internal/svc"
-	"github.com/onlyLTY/dockerCopilot/internal/types"
-	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"github.com/zeromicro/go-zero/core/logx"
 	"os"
 )

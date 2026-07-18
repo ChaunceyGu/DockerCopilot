@@ -6,13 +6,13 @@ package handler
 import (
 	"net/http"
 
-	auth "github.com/onlyLTY/dockerCopilot/internal/handler/auth"
-	container "github.com/onlyLTY/dockerCopilot/internal/handler/container"
-	icons "github.com/onlyLTY/dockerCopilot/internal/handler/icons"
-	image "github.com/onlyLTY/dockerCopilot/internal/handler/image"
-	progress "github.com/onlyLTY/dockerCopilot/internal/handler/progress"
-	version "github.com/onlyLTY/dockerCopilot/internal/handler/version"
-	"github.com/onlyLTY/dockerCopilot/internal/svc"
+	auth "github.com/ChaunceyGu/DockerCopilot/internal/handler/auth"
+	container "github.com/ChaunceyGu/DockerCopilot/internal/handler/container"
+	icons "github.com/ChaunceyGu/DockerCopilot/internal/handler/icons"
+	image "github.com/ChaunceyGu/DockerCopilot/internal/handler/image"
+	progress "github.com/ChaunceyGu/DockerCopilot/internal/handler/progress"
+	version "github.com/ChaunceyGu/DockerCopilot/internal/handler/version"
+	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
 )

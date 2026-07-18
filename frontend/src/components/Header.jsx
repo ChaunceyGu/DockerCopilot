@@ -304,7 +304,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                 {/* 维护者信息 */}
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 px-2.5 py-2">
                   <span className="text-[10px] text-gray-400 dark:text-gray-500">维护者</span>
-                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 mt-0.5">Chaunceygu</p>
+                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 mt-0.5">ChaunceyGu</p>
                 </div>
 
                 {/* 构建日期 + 更新提示 */}

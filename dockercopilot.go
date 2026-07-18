@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/onlyLTY/dockerCopilot/internal/config"
-	"github.com/onlyLTY/dockerCopilot/internal/handler"
-	"github.com/onlyLTY/dockerCopilot/internal/svc"
-	"github.com/onlyLTY/dockerCopilot/internal/utiles"
+	"github.com/ChaunceyGu/DockerCopilot/internal/config"
+	"github.com/ChaunceyGu/DockerCopilot/internal/handler"
+	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
+	"github.com/ChaunceyGu/DockerCopilot/internal/utiles"
 	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -67,6 +67,16 @@ func main() {
 	dataDir := "/data/config/image"
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		logx.Errorf("Failed to create data directory: %v", err)
+	}
+
+	// 备份目录：首次运行 /data/backups 可能不存在，提前创建，
+	// 否则列出备份时会报 "open /data/backups: no such file or directory"。
+	backupDir := os.Getenv("BACKUP_DIR")
+	if backupDir == "" {
+		backupDir = "/data/backups"
+	}
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		logx.Errorf("Failed to create backup directory: %v", err)
 	}
 
 	imageLogosPath := "/data/config/imageLogos.js"
@@ -191,6 +201,7 @@ func ensureLogDirectory(logDir string) error {
 	}
 	return nil
 }
+
 // SetupLog 初始化日志设置
 func SetupLog(logDir string) error {
 	// 检查日志目录是否存在

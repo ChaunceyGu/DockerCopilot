@@ -3,9 +3,9 @@ package container
 import (
 	"net/http"
 
-	"github.com/onlyLTY/dockerCopilot/internal/logic/container"
-	"github.com/onlyLTY/dockerCopilot/internal/svc"
-	"github.com/onlyLTY/dockerCopilot/internal/types"
+	"github.com/ChaunceyGu/DockerCopilot/internal/logic/container"
+	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
+	"github.com/ChaunceyGu/DockerCopilot/internal/types"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
