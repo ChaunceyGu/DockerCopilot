@@ -74,6 +74,7 @@ export function Containers() {
   // 添加操作状态跟踪
   const [containerActions, setContainerActions] = useState({}) // 跟踪每个容器的操作状态
   const [updateTasks, setUpdateTasks] = useState({}) // 跟踪更新任务
+  const UPDATE_TASKS_KEY = 'docker_copilot_update_tasks'
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [checkingUpdate, setCheckingUpdate] = useState({}) // 跟踪每个容器的检查更新状态
@@ -294,6 +295,14 @@ export function Containers() {
                       ...prev,
                       [containerId]: taskID
                     }))
+          // 保存到 localStorage，刷新后可恢复
+          try {
+            const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
+            saved[containerId] = taskID
+            localStorage.setItem(UPDATE_TASKS_KEY, JSON.stringify(saved))
+          } catch (e) {
+            console.error('保存更新任务失败:', e)
+          }
                     // 调用轮询进度函数
                     pollProgress(containerId, taskID)
                   }
@@ -406,6 +415,14 @@ export function Containers() {
             ...prev,
             [containerId]: taskID
           }))
+          // 保存到 localStorage，页面刷新后可恢复进度
+          try {
+            const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
+            saved[containerId] = taskID
+            localStorage.setItem(UPDATE_TASKS_KEY, JSON.stringify(saved))
+          } catch (e) {
+            console.error('保存更新任务失败:', e)
+          }
 
           pollProgress(containerId, taskID)
         } else {
@@ -520,6 +537,15 @@ export function Containers() {
         delete newState[containerId]
         return newState
       })
+
+    // 从 localStorage 删除已完成/失败的任务
+    try {
+      const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
+      delete saved[containerId]
+      localStorage.setItem(UPDATE_TASKS_KEY, JSON.stringify(saved))
+    } catch (e) {
+      console.error('清理 localStorage 失败:', e)
+    }
     }
 
     // 统一的失败展示：既清理进度状态，又弹窗告知用户失败原因（含详细日志）。
@@ -1098,7 +1124,7 @@ export function Containers() {
                             {containerActions[container.id]?.loading && containerActions[container.id]?.progress ? (
                               <p className="text-xs text-blue-600 dark:text-blue-400 truncate flex items-center gap-1">
                                 <RefreshCw className="h-3 w-3 animate-spin flex-shrink-0" />
-                                <span>{containerActions[container.id].progress}</span>
+                                <span className="truncate" title={containerActions[container.id].progress}>{containerActions[container.id].progress}</span>
                               </p>
                             ) : container.status === 'running' ? (
                               <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -1300,6 +1326,23 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
     return () => clearInterval(interval);
   }, [container.id]);
+
+  // 页面加载时恢复未完成的更新任务（防止刷新后丢失进度）
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
+      if (Object.keys(saved).length > 0) {
+        console.log('恢复未完成的更新任务:', saved)
+        Object.entries(saved).forEach(([containerId, taskID]) => {
+          // 使用 existingTaskID 参数，直接恢复轮询而不重新触发更新
+          handleUpdateContainer(containerId, taskID)
+        })
+      }
+    } catch (e) {
+      console.error('恢复更新任务失败:', e)
+    }
+  }, []) // 空依赖数组，只在首次加载时执行
+
 
   const handleIconUpload = async (event) => {
     const file = event.target.files[0]
