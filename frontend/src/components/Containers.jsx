@@ -22,7 +22,7 @@ function formatRunningTime(runningTime) {
   if (!runningTime) return '未知'
 
   // 如果已经是中文格式，直接返回
-  if (runningTime.includes('小时') || runningTime.includes('分钟') || runningTime.includes('秒')) {
+  if (runningTime.includes('小时') || runningTime.includes('分钟') || runningTime.includes('秒') || runningTime.includes('天')) {
     return runningTime
   }
 
@@ -420,6 +420,7 @@ export function Containers() {
             const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
             saved[containerId] = taskID
             localStorage.setItem(UPDATE_TASKS_KEY, JSON.stringify(saved))
+            console.log('✅ 保存更新任务到 localStorage:', containerId, taskID, saved)
           } catch (e) {
             console.error('保存更新任务失败:', e)
           }
@@ -1329,6 +1330,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
   // 页面加载时恢复未完成的更新任务（防止刷新后丢失进度）
   useEffect(() => {
+    console.log('useEffect 恢复任务执行，UPDATE_TASKS_KEY:', UPDATE_TASKS_KEY)
     try {
       const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
       if (Object.keys(saved).length > 0) {
