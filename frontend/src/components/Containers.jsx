@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Play,
   Square,
@@ -78,6 +78,10 @@ export function Containers() {
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [checkingUpdate, setCheckingUpdate] = useState({}) // 跟踪每个容器的检查更新状态
+  // pollProgress 定义在组件后半部分，恢复用的 useEffect 需要在挂载时拿到它，
+  // 用 ref 转发避免「初始化前引用」和闭包过期两个问题。
+  const pollProgressRef = useRef(null)
+  const restoredRef = useRef(false)
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -386,7 +390,6 @@ export function Containers() {
       }))
 
       if (existingTaskID) {
-        console.log('复用已有更新任务, taskID:', existingTaskID)
         setUpdateTasks(prev => ({
           ...prev,
           [containerId]: existingTaskID
@@ -420,7 +423,6 @@ export function Containers() {
             const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
             saved[containerId] = taskID
             localStorage.setItem(UPDATE_TASKS_KEY, JSON.stringify(saved))
-            console.log('✅ 保存更新任务到 localStorage:', containerId, taskID, saved)
           } catch (e) {
             console.error('保存更新任务失败:', e)
           }
@@ -483,10 +485,12 @@ export function Containers() {
       const response = await containerAPI.checkUpdate(containerId)
       if (response.data.code === 200) {
         const haveUpdate = response.data.data?.haveUpdate || false
-        // 更新容器列表中的 haveUpdate 状态
-        setContainers(prev => prev.map(c => 
-          c.id === containerId ? { ...c, haveUpdate } : c
-        ))
+        // 容器列表由 React Query 托管，没有 setContainers 这个 setter，
+        // 原写法会直接 ReferenceError。必须走 queryClient.setQueryData。
+        queryClient.setQueryData(['containers'], (oldData) => {
+          if (!oldData) return oldData
+          return oldData.map(c => (c.id === containerId ? { ...c, haveUpdate } : c))
+        })
         // 显示结果提示
         setConfirmModal({
           isOpen: true,
@@ -515,7 +519,9 @@ export function Containers() {
   }
 
 
-  const pollProgress = async (containerId, taskID) => {
+  // isRestore=true 表示这是刷新后恢复的轮询：taskID 可能已随后端重启失效，
+  // 这种情况应该静默清理状态，而不是弹一个用户没做任何操作的「更新失败」。
+  const pollProgress = async (containerId, taskID, isRestore = false) => {
     // 后端拉取镜像超时为 30 分钟，前端轮询窗口要覆盖它，
     // 否则大镜像/慢网络下前端会提前放弃、进度条卡死，而后端其实还在拉。
     // 每 2 秒一次，30 分钟 = 900 次。
@@ -613,7 +619,13 @@ export function Containers() {
         }
       } catch (error) {
         console.error('查询进度失败:', error)
-        // taskID 未找到（后端重启或任务过期）等异常
+        // 恢复场景下 taskID 失效属正常（后端重启/任务过期），静默清理即可，
+        // 用户并没有触发任何操作，弹「更新失败」只会造成误解。
+        if (isRestore && attempts <= 1) {
+          clearPollState()
+          refetch()
+          return
+        }
         showFailure('查询更新进度失败', error.response?.data?.msg || error.message)
       }
     }
@@ -621,6 +633,38 @@ export function Containers() {
     // 开始轮询
     poll()
   }
+
+  // 每次渲染都把最新的 pollProgress 挂到 ref 上
+  pollProgressRef.current = pollProgress
+
+  // 刷新页面后恢复未完成的更新任务。
+  // 后端任务存活在内存里（ProgressStore），只要 taskID 还在就能继续查进度，
+  // 所以恢复只需要 containerId + taskID，不依赖容器列表是否已加载。
+  useEffect(() => {
+    if (restoredRef.current) return
+    restoredRef.current = true
+
+    let saved = {}
+    try {
+      saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
+    } catch (e) {
+      localStorage.removeItem(UPDATE_TASKS_KEY)
+      return
+    }
+
+    const entries = Object.entries(saved).filter(([, taskID]) => !!taskID)
+    if (entries.length === 0) return
+
+    entries.forEach(([containerId, taskID]) => {
+      // 先立刻把卡片切到「更新中」，否则要等第一次轮询返回才有反馈
+      setContainerActions(prev => ({
+        ...prev,
+        [containerId]: { action: 'update', loading: true, progress: '正在恢复更新进度...', percentage: 0 }
+      }))
+      setUpdateTasks(prev => ({ ...prev, [containerId]: taskID }))
+      pollProgressRef.current?.(containerId, taskID, true)
+    })
+  }, [])
 
   // 容器选择处理函数
   const toggleContainerSelection = (containerId) => {
@@ -1327,24 +1371,6 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
     return () => clearInterval(interval);
   }, [container.id]);
-
-  // 页面加载时恢复未完成的更新任务（防止刷新后丢失进度）
-  useEffect(() => {
-    console.log('useEffect 恢复任务执行，UPDATE_TASKS_KEY:', UPDATE_TASKS_KEY)
-    try {
-      const saved = JSON.parse(localStorage.getItem(UPDATE_TASKS_KEY) || '{}')
-      if (Object.keys(saved).length > 0) {
-        console.log('恢复未完成的更新任务:', saved)
-        Object.entries(saved).forEach(([containerId, taskID]) => {
-          // 使用 existingTaskID 参数，直接恢复轮询而不重新触发更新
-          handleUpdateContainer(containerId, taskID)
-        })
-      }
-    } catch (e) {
-      console.error('恢复更新任务失败:', e)
-    }
-  }, []) // 空依赖数组，只在首次加载时执行
-
 
   const handleIconUpload = async (event) => {
     const file = event.target.files[0]

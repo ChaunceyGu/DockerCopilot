@@ -46,7 +46,16 @@ export function About() {
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">致谢 / Thanks</h3>
             </div>
             <p className="text-gray-600 dark:text-gray-400 leading-relaxed flex-1">
-              非常感谢大家自项目开始以来的使用、建议、鼓励和支持。特别感谢绿联对本项目的支持。没有大家的反馈，Docker Copilot 不会是今天的样子。它是属于我们共同的作品。
+              本项目基于{' '}
+              <a
+                href="https://github.com/onlyLTY/dockerCopilot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary-600 dark:text-primary-400 hover:underline"
+              >
+                onlyLTY/dockerCopilot
+              </a>
+              {' '}二次开发，感谢原作者打下的基础，同样感谢绿联对原项目的支持。也感谢每一位使用者的反馈、建议与鼓励，Docker Copilot 是属于大家共同的作品。
             </p>
           </div>
 

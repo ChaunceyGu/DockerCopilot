@@ -32,6 +32,9 @@ export function Images() {
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [pruneModal, setPruneModal] = useState({ isOpen: false, type: null, images: [] })
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
+  // 删除失败弹窗。canForce 为 true 时提供「强制删除」重试入口，
+  // 否则（运行中容器占用 / 存在子镜像）强制也删不掉，只提示原因。
+  const [failModal, setFailModal] = useState({ isOpen: false, message: '', image: null, canForce: false })
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -92,19 +95,32 @@ export function Images() {
   }, [])
 
   const handleDeleteImage = async (imageId, force = false) => {
+    const targetImage = images.find(img => img.id === imageId) || deleteModal.image
     try {
       setIsLoading(true)
+      setError(null)
       setDeleteModal({ isOpen: false, image: null })
+      setFailModal({ isOpen: false, message: '', image: null, canForce: false })
 
-      await imageAPI.deleteImage(imageId, force)
+      const response = await imageAPI.deleteImage(imageId, force)
+
+      // 后端删除冲突时返回 code 409 但 HTTP 状态不一定是错误码，
+      // 所以这里必须显式检查业务 code，否则失败会被当成成功。
+      const code = response?.data?.code
+      if (code && code !== 200 && code !== 0) {
+        throw new Error(response.data.msg || '删除镜像失败')
+      }
 
       setSuccessModal({ isOpen: true, message: '镜像删除成功' })
       fetchImages()
       setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
     } catch (error) {
       const errorMsg = error.response?.data?.msg || error.message || '删除镜像失败'
-      setError(errorMsg)
+      // 后端提示里包含「强制删除」时，说明这次失败可以靠 force 解决
+      const canForce = !force && errorMsg.includes('强制删除')
+      setFailModal({ isOpen: true, message: errorMsg, image: targetImage, canForce })
       setIsLoading(false)
+      fetchImages()
     }
   }
 
@@ -126,20 +142,39 @@ export function Images() {
         return
       }
 
-      // 批量删除
-      const deletePromises = imagesToDelete.map(image =>
-        imageAPI.deleteImage(image.id, false)
+      // 批量删除。用 allSettled 而不是 all：一个失败不该让整批都报错，
+      // 而且要显式检查业务 code，否则 409 冲突会被当成删除成功。
+      const results = await Promise.allSettled(
+        imagesToDelete.map(async (image) => {
+          const response = await imageAPI.deleteImage(image.id, false)
+          const code = response?.data?.code
+          if (code && code !== 200 && code !== 0) {
+            throw new Error(`${image.name || image.id.slice(0, 12)}：${response.data.msg}`)
+          }
+          return image
+        })
       )
 
-      await Promise.all(deletePromises)
+      const okCount = results.filter(r => r.status === 'fulfilled').length
+      const failures = results
+        .filter(r => r.status === 'rejected')
+        .map(r => r.reason?.response?.data?.msg || r.reason?.message || '未知错误')
 
-      const message = type === 'dangling'
-        ? `成功清理 ${imagesToDelete.length} 个无Tag镜像`
-        : `成功清理 ${imagesToDelete.length} 个未使用的镜像`
-
-      setSuccessModal({ isOpen: true, message })
+      const label = type === 'dangling' ? '无Tag镜像' : '未使用的镜像'
       fetchImages()
-      setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
+
+      if (failures.length === 0) {
+        setSuccessModal({ isOpen: true, message: `成功清理 ${okCount} 个${label}` })
+        setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
+      } else {
+        setFailModal({
+          isOpen: true,
+          message: `成功清理 ${okCount} 个${label}，${failures.length} 个失败：\n\n${failures.join('\n')}`,
+          image: null,
+          canForce: false
+        })
+        setIsLoading(false)
+      }
     } catch (error) {
       const errorMsg = error.response?.data?.msg || error.message || '清理镜像失败'
       setError(errorMsg)
@@ -572,6 +607,53 @@ export function Images() {
       )}
 
       {/* 删除确认弹窗 */}
+      {/* 删除失败弹窗：把后端翻译好的中文原因展示出来，可强制时给重试入口 */}
+      {failModal.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="p-8 flex flex-col">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="h-12 w-12 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/30 rounded-full flex items-center justify-center flex-shrink-0 border border-amber-200 dark:border-amber-700">
+                  <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">删除失败</h3>
+                  {failModal.image && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 break-all">
+                      {failModal.image.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="w-full h-px bg-gradient-to-r from-transparent via-amber-200 dark:via-amber-800 to-transparent mb-6"></div>
+
+              <div className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-8 whitespace-pre-wrap max-h-60 overflow-y-auto">
+                {failModal.message}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setFailModal({ isOpen: false, message: '', image: null, canForce: false })}
+                  className="flex-1 px-4 py-2.5 text-sm font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-300 active:scale-95 border border-gray-200 dark:border-gray-600"
+                >
+                  关闭
+                </button>
+                {failModal.canForce && failModal.image && (
+                  <button
+                    onClick={() => handleDeleteImage(failModal.image.id, true)}
+                    disabled={isLoading}
+                    className="flex-1 px-4 py-2.5 text-sm font-semibold bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 text-white rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                  >
+                    强制删除
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteModal.isOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden transform transition-all duration-300 scale-100">
