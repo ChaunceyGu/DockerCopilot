@@ -110,9 +110,10 @@ export const customImageLogos = {
 		ctx.HubImageInfo.CheckUpdate(list)
 	})
 	if err != nil {
-		// 添加定时任务失败是启动期的配置性错误，此处保留 panic 以便尽早暴露。
+		// cron 表达式无效是启动期的配置性错误，记录日志后优雅退出而非 panic，
+		// 避免整个管理服务一起崩溃。
 		logx.Errorf("添加定时任务出错: %v", err)
-		panic(err)
+		os.Exit(1)
 	}
 	corndanmu.Start()
 	defer corndanmu.Stop()

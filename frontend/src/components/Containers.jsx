@@ -78,6 +78,7 @@ export function Containers() {
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [checkingUpdate, setCheckingUpdate] = useState({}) // 跟踪每个容器的检查更新状态
+  const [delOldContainer, setDelOldContainer] = useState(true) // 批量/单个更新时是否删除旧容器
   // pollProgress 定义在组件后半部分，恢复用的 useEffect 需要在挂载时拿到它，
   // 用 ref 转发避免「初始化前引用」和闭包过期两个问题。
   const pollProgressRef = useRef(null)
@@ -288,7 +289,7 @@ export function Containers() {
                   containerId,
                   container.name,
                   container.usingImage,
-                  true
+                  delOldContainer
                 )
 
                 if (response.data.code === 200 || response.data.code === 0) {
@@ -374,7 +375,7 @@ export function Containers() {
     }
   }
 
-  const handleUpdateContainer = async (containerId, existingTaskID = null) => {
+  const handleUpdateContainer = async (containerId, existingTaskID = null, delOld = true) => {
     try {
       const container = containers.find(c => c.id === containerId)
       if (!container) {
@@ -403,7 +404,7 @@ export function Containers() {
         containerId,
         container.name,
         container.usingImage,
-        true
+        delOld
       )
 
       console.log('更新容器响应:', response.data)
@@ -1304,6 +1305,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
   const [currentContainer, setCurrentContainer] = useState(container)
   const fileInputRef = React.useRef(null)
   const [isUploadingIcon, setIsUploadingIcon] = useState(false)
+  const [delOldContainer, setDelOldContainer] = useState(true)
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -1509,7 +1511,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
           container.id,
           container.name,
           imageNameAndTag,
-          true // 删除旧容器
+          delOldContainer
         )
 
         console.log('更新容器响应:', response.data)
@@ -1721,6 +1723,21 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
                 ) : '重命名'}
               </button>
             </div>
+          </div>
+
+          {/* 删除旧容器选项 */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="delOldContainer"
+              checked={delOldContainer}
+              onChange={(e) => setDelOldContainer(e.target.checked)}
+              disabled={isActionProcessing || isUpdating}
+              className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700"
+            />
+            <label htmlFor="delOldContainer" className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+              更新成功后删除旧容器
+            </label>
           </div>
 
           {/* 镜像信息 */}

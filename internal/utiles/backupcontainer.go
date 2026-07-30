@@ -60,7 +60,7 @@ func BackupContainer(ctx *svc.ServiceContext) error {
 			return err
 		}
 	}
-	currentDate := time.Now().Format("2006-01-02")
+	currentDate := time.Now().Format("2006-01-02_150405")
 	fileName := "backup-" + currentDate + ".json"
 	fullPath := filepath.Join(backupDir, fileName)
 	err = os.WriteFile(fullPath, jsonData, 0644)

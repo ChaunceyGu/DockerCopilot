@@ -42,7 +42,7 @@ func DockerConfig2ComposeYaml(containerJSONs []dockerTypes.ContainerJSON) (err e
 	if yamlMarshalErr != nil {
 		logx.Errorf("Error marshalling data err is: %v", yamlMarshalErr)
 	}
-	currentDate := time.Now().Format("2006-01-02")
+	currentDate := time.Now().Format("2006-01-02_150405")
 	fileName := "backup-" + currentDate + ".yaml"
 	fullPath := filepath.Join(backupDir, fileName)
 	err = os.WriteFile(fullPath, yamlData, 0644)

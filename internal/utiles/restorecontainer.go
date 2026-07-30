@@ -32,38 +32,32 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		logx.Errorf("Failed to read file: %s", err)
-		oldProgress.Percentage = 0
 		oldProgress.Message = "读取文件失败或者未找到文件。请确认文件名仅由大小写字母、数字和短横线组成"
 		oldProgress.DetailMsg = err.Error()
 		oldProgress.IsDone = true
 		oldProgress.IsError = true
 		ctx.UpdateProgress(taskID, oldProgress)
+		return nil
 	}
 	var configList []dockerBackend.ContainerCreateConfig
 	err = json.Unmarshal(content, &configList)
 	if err != nil {
 		logx.Errorf("Failed to parse json: %s", err)
-		oldProgress.Percentage = 0
 		oldProgress.Message = "解析文件失败"
 		oldProgress.DetailMsg = err.Error()
 		oldProgress.IsDone = true
 		oldProgress.IsError = true
 		ctx.UpdateProgress(taskID, oldProgress)
+		return nil
 	}
 	pr := newProgressReporter(ctx, taskID, "恢复容器")
+	var hasError bool
 	for i, containerInfo := range configList {
 		info := "正在恢复第" + strconv.Itoa(i+1) + "个容器"
 		oldProgress.Percentage = int(float64(i) / float64(len(configList)) * 100)
 		oldProgress.Message = info
 		oldProgress.DetailMsg = info
 		ctx.UpdateProgress(taskID, oldProgress)
-		ctx.DockerClient.NegotiateAPIVersion(context.TODO())
-		if err != nil {
-			backupList = append(backupList, "出现错误"+err.Error())
-			logx.Errorf("Failed to inspect container: %s", err)
-			return err
-		}
-		// 若配置了镜像加速器，改写成走加速器拉取。
 		pullImage := ApplyRegistryMirror(containerInfo.Config.Image)
 		reader, err := ctx.DockerClient.ImagePull(context.TODO(), pullImage, image.PullOptions{})
 		if err != nil {
@@ -87,9 +81,9 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 		}
 		_, err = ctx.DockerClient.ContainerCreate(context.TODO(), containerInfo.Config, containerInfo.HostConfig, containerInfo.NetworkingConfig, nil, containerInfo.Name)
 		if err != nil {
-			logx.Errorf("Failed to create container: %s", err)
-			info = "正在恢复第" + strconv.Itoa(i+1) + "个容器"
+			logx.Errorf("Failed to create container %s: %s", containerInfo.Name, err)
 			backupList = append(backupList, containerInfo.Name+"恢复失败"+err.Error())
+			hasError = true
 			continue
 		} else {
 			backupList = append(backupList, containerInfo.Name+"恢复成功")
@@ -97,7 +91,12 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 	}
 	oldProgress.Percentage = 100
 	oldProgress.DetailMsg = strings.Join(backupList, ",\n")
-	oldProgress.Message = "恢复完成"
+	if hasError {
+		oldProgress.Message = "恢复完成（部分容器失败，请查看详情）"
+		oldProgress.IsError = true
+	} else {
+		oldProgress.Message = "恢复完成"
+	}
 	oldProgress.IsDone = true
 	ctx.UpdateProgress(taskID, oldProgress)
 	return nil
