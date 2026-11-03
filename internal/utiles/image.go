@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
 	MyType "github.com/ChaunceyGu/DockerCopilot/internal/types"
+	ref "github.com/distribution/reference"
 	"github.com/docker/docker/api/types/image"
 	"github.com/zeromicro/go-zero/core/logx"
 	"strings"
@@ -41,8 +42,14 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 func splitImageNameAndTag(imagesList []MyType.Image) []MyType.Image {
 	for i, imageInfo := range imagesList {
 		if len(imageInfo.RepoTags) != 0 {
-			imagesList[i].ImageName = strings.Split(imageInfo.RepoTags[0], ":")[0]
-			imagesList[i].ImageTag = strings.Split(imageInfo.RepoTags[0], ":")[1]
+			named, err := ref.ParseDockerRef(imageInfo.RepoTags[0])
+			if tagged, ok := named.(ref.NamedTagged); err == nil && ok {
+				imagesList[i].ImageName = ref.FamiliarName(ref.TrimNamed(named))
+				imagesList[i].ImageTag = tagged.Tag()
+			} else {
+				imagesList[i].ImageName = imageInfo.RepoTags[0]
+				imagesList[i].ImageTag = "None"
+			}
 		} else if len(imageInfo.RepoDigests) != 0 {
 			imagesList[i].ImageName = strings.Split(imageInfo.RepoDigests[0], "@")[0]
 			imagesList[i].ImageTag = "None"

@@ -2,11 +2,12 @@ package container
 
 import (
 	"context"
-	"strings"
+	"time"
 
 	"github.com/ChaunceyGu/DockerCopilot/internal/svc"
 	"github.com/ChaunceyGu/DockerCopilot/internal/types"
 	"github.com/ChaunceyGu/DockerCopilot/internal/utiles"
+	ref "github.com/distribution/reference"
 	"github.com/docker/docker/api/types/image"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -31,7 +32,9 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 	resp = &types.Resp{}
 
 	// 1. 获取容器信息
-	containerInspect, err := utiles.GetContainerInspect(l.svcCtx, req.Id)
+	ctx, cancel := context.WithTimeout(l.ctx, 35*time.Second)
+	defer cancel()
+	containerInspect, err := l.svcCtx.DockerClient.ContainerInspect(ctx, req.Id)
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = "获取容器信息失败"
@@ -49,7 +52,7 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 	}
 
 	// 3. 通过 Docker API 获取镜像详情
-	imageInspect, _, err := l.svcCtx.DockerClient.ImageInspectWithRaw(context.Background(), imageID)
+	imageInspect, _, err := l.svcCtx.DockerClient.ImageInspectWithRaw(ctx, imageID)
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = "获取镜像详情失败"
@@ -58,21 +61,23 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 	}
 
 	// 4. 构造 types.Image 结构
-	var imageName, imageTag string
-	if len(imageInspect.RepoTags) > 0 {
-		parts := strings.Split(imageInspect.RepoTags[0], ":")
-		if len(parts) == 2 {
-			imageName = parts[0]
-			imageTag = parts[1]
-		}
-	} else if len(imageInspect.RepoDigests) > 0 {
-		imageName = strings.Split(imageInspect.RepoDigests[0], "@")[0]
-		imageTag = "None"
-	}
-
-	if imageName == "" {
+	if containerInspect.Config == nil {
 		resp.Code = 400
-		resp.Msg = "无法解析镜像名称"
+		resp.Msg = "容器没有镜像配置信息"
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	imageRef, parseErr := ref.ParseDockerRef(containerInspect.Config.Image)
+	if parseErr != nil {
+		resp.Code = 400
+		resp.Msg = "无法解析容器配置中的镜像名称"
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	tagged, ok := imageRef.(ref.NamedTagged)
+	if !ok {
+		resp.Code = 400
+		resp.Msg = "容器使用固定摘要的镜像，无法按标签检查更新"
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
@@ -83,16 +88,18 @@ func (l *CheckUpdateLogic) CheckUpdate(req *types.IdReq) (resp *types.Resp, err 
 			RepoTags:    imageInspect.RepoTags,
 			RepoDigests: imageInspect.RepoDigests,
 		},
-		ImageName: imageName,
-		ImageTag:  imageTag,
+		ImageName: ref.TrimNamed(imageRef).Name(),
+		ImageTag:  tagged.Tag(),
 	}
 
 	// 5. 调用更新检查
-	l.svcCtx.HubImageInfo.CheckUpdate([]types.Image{imgInfo})
-
-	// 6. 读取检查结果
-	updateStatus, exists := l.svcCtx.HubImageInfo.Get(imageID)
-	haveUpdate := exists && updateStatus.NeedUpdate
+	haveUpdate, checkErr := l.svcCtx.HubImageInfo.CheckImage(ctx, imgInfo, utiles.LoadSettings().RegistryMirror)
+	if checkErr != nil {
+		resp.Code = 502
+		resp.Msg = checkErr.Error()
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
 
 	resp.Code = 200
 	resp.Msg = "检查完成"

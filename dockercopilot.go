@@ -95,7 +95,7 @@ export const customImageLogos = {
 	if list, err := utiles.GetImagesList(ctx); err != nil {
 		logx.Errorf("启动时获取镜像列表出错，跳过本次更新检查: %v", err)
 	} else {
-		go ctx.HubImageInfo.CheckUpdate(list)
+		go ctx.HubImageInfo.CheckUpdate(list, utiles.LoadSettings().RegistryMirror)
 	}
 	corndanmu := cron.New(cron.WithParser(cron.NewParser(
 		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
@@ -107,7 +107,7 @@ export const customImageLogos = {
 			logx.Errorf("定时获取镜像列表出错，跳过本次更新检查: %v", err)
 			return
 		}
-		ctx.HubImageInfo.CheckUpdate(list)
+		ctx.HubImageInfo.CheckUpdate(list, utiles.LoadSettings().RegistryMirror)
 	})
 	if err != nil {
 		// cron 表达式无效是启动期的配置性错误，记录日志后优雅退出而非 panic，

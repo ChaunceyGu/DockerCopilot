@@ -1,41 +1,33 @@
 package module
 
 import (
-	"crypto/tls"
-	"errors"
+	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/ChaunceyGu/DockerCopilot/internal/types"
-	ref "github.com/distribution/reference"
-	"github.com/zeromicro/go-zero/core/logx"
-	"io"
-	"net"
 	"net/http"
-	url2 "net/url"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ChaunceyGu/DockerCopilot/internal/types"
+	ref "github.com/distribution/reference"
+	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// ImageCheckList 检查更新处理后的镜像列表
 type ImageCheckList struct {
 	NeedUpdate bool
 }
+
 type ImageUpdateData struct {
-	// mu 保护 Data，CheckUpdate（后台 goroutine / cron）会写，
-	// 容器列表接口会并发读。没有锁会触发 fatal error: concurrent map read and map write。
 	mu   sync.RWMutex
 	Data map[string]ImageCheckList
 }
 
-const ContentDigestHeader = "Docker-Content-Digest"
-
 func NewImageCheck() *ImageUpdateData {
-	return &ImageUpdateData{
-		Data: map[string]ImageCheckList{},
-	}
+	return &ImageUpdateData{Data: map[string]ImageCheckList{}}
 }
 
-// Get 并发安全地读取某个镜像 ID 的更新状态。
 func (i *ImageUpdateData) Get(imageID string) (ImageCheckList, bool) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -43,141 +35,156 @@ func (i *ImageUpdateData) Get(imageID string) (ImageCheckList, bool) {
 	return v, ok
 }
 
-// set 并发安全地写入某个镜像 ID 的更新状态。
-func (i *ImageUpdateData) set(imageID string, v ImageCheckList) {
+// CheckUpdate is used by scheduled checks. Each image has an independent deadline.
+func (i *ImageUpdateData) CheckUpdate(images []types.Image, mirror string) {
+	for _, image := range images {
+		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		_, err := i.CheckImage(ctx, image, mirror)
+		cancel()
+		if err != nil {
+			logx.Errorf("检查镜像 %s:%s 更新失败: %v", image.ImageName, image.ImageTag, err)
+		}
+	}
+}
+
+func (i *ImageUpdateData) CheckImage(ctx context.Context, image types.Image, mirror string) (bool, error) {
+	if len(image.RepoDigests) == 0 {
+		return false, fmt.Errorf("本地镜像没有仓库摘要，无法判断是否有更新（本地构建的镜像通常没有摘要）")
+	}
+	named, err := ref.ParseDockerRef(image.ImageName + ":" + image.ImageTag)
+	if err != nil {
+		return false, fmt.Errorf("无法解析镜像名称：%w", err)
+	}
+	tagged, ok := named.(ref.NamedTagged)
+	if !ok || image.ImageTag == "None" || image.ImageTag == "<none>" {
+		return false, fmt.Errorf("镜像没有有效标签，无法检查更新")
+	}
+	registry := "https://" + ref.Domain(named)
+	if ref.Domain(named) == "docker.io" {
+		registry = "https://registry-1.docker.io"
+		if strings.TrimSpace(mirror) != "" {
+			registry = strings.TrimRight(strings.TrimSpace(mirror), "/")
+			if !strings.Contains(registry, "://") {
+				registry = "https://" + registry
+			}
+		}
+	}
+	base, err := url.Parse(registry)
+	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
+		return false, fmt.Errorf("镜像站地址无效：%s", registry)
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/v2/" + ref.Path(named) + "/manifests/" + tagged.Tag()
+	remote, err := fetchManifestDigest(ctx, base.String(), ref.Path(named))
+	if err != nil {
+		return false, fmt.Errorf("访问镜像仓库 %s 失败：%w。请检查网络和镜像站设置", base.Host, err)
+	}
+	for _, local := range image.RepoDigests {
+		parts := strings.SplitN(local, "@", 2)
+		if len(parts) == 2 && parts[1] == remote {
+			i.set(image.ID, false)
+			return false, nil
+		}
+	}
+	i.set(image.ID, true)
+	return true, nil
+}
+
+func (i *ImageUpdateData) set(id string, needUpdate bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	i.Data[imageID] = v
+	i.Data[id] = ImageCheckList{NeedUpdate: needUpdate}
 }
 
-func (i *ImageUpdateData) CheckUpdate(imageList []types.Image) {
-	for _, image := range imageList {
-		if strings.Contains(image.ImageName, "chaunceygu178/dockercopilot") {
-			continue
-		}
-		i.checkSingleImage(image)
-	}
-}
+var registryClient = &http.Client{Timeout: 15 * time.Second}
 
-func (i *ImageUpdateData) checkSingleImage(image types.Image) {
-	token, err := GetToken(image, "")
-	if err != nil {
-		logx.Error("获取token失败或者无需获取token，继续尝试检查" + err.Error())
-	}
-	digestURL, err := BuildManifestURL(image)
-	if err != nil {
-		logx.Error("获取digestURL失败" + err.Error())
-		return
-	}
-	remoteDigest, err := GetDigest(digestURL, token)
-	if err != nil {
-		logx.Error("获取digest失败" + err.Error())
-		return
-	}
-	if len(image.RepoDigests) == 0 {
-		logx.Error("未在本地获取到repoDigest" + image.ImageName + ":" + image.ImageTag)
-		return
-	}
-	if remoteDigest == "" {
-		logx.Error("远程Digest为空" + image.ImageName + ":" + image.ImageTag)
-		return
-	}
-	// 只要本地有任意一个 digest 与远程一致，就说明本地已经是最新，无需更新。
-	// 反之（所有本地 digest 都对不上）才判定需要更新。
-	// 多架构 / 多 digest 镜像下不能用「最后一轮说了算」的写法，否则会误判。
-	matched := false
-	for _, localRepoDigests := range image.RepoDigests {
-		parts := strings.SplitN(localRepoDigests, "@", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		localDigest := parts[1]
-		if localDigest == "" {
-			continue
-		}
-		if remoteDigest == localDigest {
-			matched = true
-			break
-		}
-	}
-	needUpdate := !matched
-	if needUpdate {
-		logx.Info(image.ImageName + ":" + image.ImageTag + " need update")
-		logx.Infof("remoteDigest: %s, localRepoDigests: %v", remoteDigest, image.RepoDigests)
-	} else {
-		logx.Info(image.ImageName + ":" + image.ImageTag + " not need update")
-	}
-	i.set(image.ID, ImageCheckList{NeedUpdate: needUpdate})
-}
-
-func BuildManifestURL(image types.Image) (string, error) {
-	normalizedRef, err := ref.ParseDockerRef(image.ImageName + ":" + image.ImageTag)
-	if err != nil {
-		return "", err
-	}
-	normalizedTaggedRef, isTagged := normalizedRef.(ref.NamedTagged)
-	if !isTagged {
-		return "", errors.New("镜像无tag" + normalizedRef.String())
-	}
-
-	host, ErrGetRegistryAddress := GetRegistryAddress(normalizedTaggedRef.Name())
-	img, tag := ref.Path(normalizedTaggedRef), normalizedTaggedRef.Tag()
-
-	if ErrGetRegistryAddress != nil {
-		return "", ErrGetRegistryAddress
-	}
-
-	url := url2.URL{
-		Scheme: "https",
-		Host:   host,
-		Path:   fmt.Sprintf("/v2/%s/manifests/%s", img, tag),
-	}
-	return url.String(), nil
-}
-
-func GetDigest(url string, token string) (string, error) {
-	tr := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-
-	req, _ := http.NewRequest("HEAD", url, nil)
-
-	if token != "" {
-		req.Header.Add("Authorization", token)
-	}
-	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.v2+json")
-	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.list.v2+json")
-	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.v1+json")
-	req.Header.Add("Accept", "application/vnd.oci.image.index.v1+json")
-
-	res, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
+func fetchManifestDigest(ctx context.Context, manifestURL, repository string) (string, error) {
+	request := func(token string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, manifestURL, nil)
 		if err != nil {
-			logx.Error("GetDigest关闭body失败" + err.Error())
+			return nil, err
 		}
-	}(res.Body)
-
-	if res.StatusCode != 200 {
-		wwwAuthHeader := res.Header.Get("www-authenticate")
-		if wwwAuthHeader == "" {
-			wwwAuthHeader = "not present"
+		req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
-		return "", fmt.Errorf("registry responded to head request with %q, auth: %q", res.Status, wwwAuthHeader)
+		return registryClient.Do(req)
 	}
-	return res.Header.Get(ContentDigestHeader), nil
+	resp, err := request("")
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		token, err := registryToken(ctx, challenge, repository)
+		if err != nil {
+			return "", err
+		}
+		resp, err = request(token)
+		if err != nil {
+			return "", err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("仓库返回 %s", resp.Status)
+	}
+	digest := resp.Header.Get("Docker-Content-Digest")
+	if digest == "" {
+		return "", fmt.Errorf("仓库未返回镜像摘要，可能不支持检查更新")
+	}
+	return digest, nil
+}
+
+func registryToken(ctx context.Context, challenge, repository string) (string, error) {
+	if !strings.HasPrefix(strings.ToLower(challenge), "bearer ") {
+		return "", fmt.Errorf("仓库需要认证，当前不支持此认证方式")
+	}
+	values := map[string]string{}
+	for _, part := range strings.Split(challenge[len("Bearer "):], ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if ok {
+			values[strings.ToLower(key)] = strings.Trim(value, "\"")
+		}
+	}
+	endpoint, err := url.Parse(values["realm"])
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.User != nil {
+		return "", fmt.Errorf("仓库返回了无效的认证地址")
+	}
+	q := endpoint.Query()
+	if values["service"] != "" {
+		q.Set("service", values["service"])
+	}
+	scope := values["scope"]
+	if scope == "" {
+		scope = "repository:" + repository + ":pull"
+	}
+	q.Set("scope", scope)
+	endpoint.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := registryClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("仓库认证返回 %s", resp.Status)
+	}
+	var result struct {
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("无法读取仓库认证响应：%w", err)
+	}
+	if result.Token == "" {
+		result.Token = result.AccessToken
+	}
+	if result.Token == "" {
+		return "", fmt.Errorf("仓库没有返回认证令牌")
+	}
+	return result.Token, nil
 }

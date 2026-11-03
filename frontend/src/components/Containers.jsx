@@ -509,7 +509,7 @@ export function Containers() {
       setConfirmModal({
         isOpen: true,
         title: '检查失败',
-        message: error.response?.data?.msg || error.message || '无法检查更新',
+        message: error.code === 'ECONNABORTED' ? '检查更新超时，请检查网络和镜像站后重试。' : error.response?.data?.msg || error.message || '无法检查更新',
         onConfirm: () => setConfirmModal({ isOpen: false }),
         onCancel: null,
         type: 'danger'
