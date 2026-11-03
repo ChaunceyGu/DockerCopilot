@@ -129,9 +129,9 @@ export const containerAPI = {
 
 // 镜像相关API
 export const imageAPI = {
-  getImages: () => apiClient.get('/api/images'),
+  getImages: () => apiClient.get('/api/images', { timeout: 60000 }),
   getIcons: () => apiClient.get('/api/icons'),
-  deleteImage: (id, force = false) => apiClient.delete(`/api/image/${id}?force=${force}`),
+  deleteImage: (id, force = false) => apiClient.delete(`/api/image/${id}?force=${force}`, { timeout: 330000 }),
   uploadIcon: (file, imageName, containerName) => {
     const formData = new FormData()
     formData.append('file', file)

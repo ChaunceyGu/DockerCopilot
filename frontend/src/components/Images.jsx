@@ -26,6 +26,7 @@ function SafeImage({ src, alt, className, fallback }) {
 export function Images() {
   const [images, setImages] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [pruneProgress, setPruneProgress] = useState('')
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, image: null })
@@ -79,12 +80,10 @@ export function Images() {
       } else {
         const errorMsg = response.data?.msg || '获取镜像列表失败'
         setError(errorMsg)
-        setImages([])
       }
     } catch (error) {
       const errorMsg = error.response?.data?.msg || error.message || '网络错误，请检查后端服务'
       setError(errorMsg)
-      setImages([])
     } finally {
       setIsLoading(false)
     }
@@ -115,7 +114,9 @@ export function Images() {
       fetchImages()
       setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
     } catch (error) {
-      const errorMsg = error.response?.data?.msg || error.message || '删除镜像失败'
+      const errorMsg = error.code === 'ECONNABORTED' || !error.response && error.request
+        ? '未能确认删除结果，Docker 可能仍在处理。请稍后刷新镜像列表，确认结果后再重试。'
+        : error.response?.data?.msg || error.message || '删除镜像失败'
       // 后端提示里包含「强制删除」时，说明这次失败可以靠 force 解决
       const canForce = !force && errorMsg.includes('强制删除')
       setFailModal({ isOpen: true, message: errorMsg, image: targetImage, canForce })
@@ -142,26 +143,41 @@ export function Images() {
         return
       }
 
-      // 批量删除。用 allSettled 而不是 all：一个失败不该让整批都报错，
-      // 而且要显式检查业务 code，否则 409 冲突会被当成删除成功。
-      const results = await Promise.allSettled(
-        imagesToDelete.map(async (image) => {
-          const response = await imageAPI.deleteImage(image.id, false)
-          const code = response?.data?.code
-          if (code && code !== 200 && code !== 0) {
-            throw new Error(`${image.name || image.id.slice(0, 12)}：${response.data.msg}`)
+      let pending = imagesToDelete
+      let okCount = 0
+      let failures = []
+      let attempted = 0
+      do {
+        const retry = []
+        let succeeded = 0
+        for (const image of pending) {
+          attempted++
+          setPruneProgress(`正在清理：${image.name || image.id.slice(0, 12)}（已完成 ${okCount} / ${imagesToDelete.length}）${attempted > imagesToDelete.length ? '，正在重试依赖冲突' : ''}`)
+          try {
+            const response = await imageAPI.deleteImage(image.id, false)
+            const code = response?.data?.code
+            if (code && code !== 200) throw new Error(response.data.msg || '删除失败')
+            okCount++
+            succeeded++
+          } catch (error) {
+            const uncertain = error.code === 'ECONNABORTED' || (!error.response && error.request)
+            const message = uncertain
+              ? '未能确认删除结果，Docker 可能仍在处理。请稍后刷新列表确认后再重试。'
+              : error.response?.data?.msg || error.message || '未知错误'
+            const failure = `${image.name || '无标签镜像'}:${image.tag || '<none>'}（ID: ${image.id.replace(/^sha256:/, '').slice(0, 12)}）：${message}`
+            if (!uncertain && message.includes('子镜像')) retry.push({ image, failure })
+            else failures.push(failure)
           }
-          return image
-        })
-      )
-
-      const okCount = results.filter(r => r.status === 'fulfilled').length
-      const failures = results
-        .filter(r => r.status === 'rejected')
-        .map(r => r.reason?.response?.data?.msg || r.reason?.message || '未知错误')
+        }
+        if (succeeded === 0 || retry.length === 0) {
+          failures.push(...retry.map(item => item.failure))
+          break
+        }
+        pending = retry.map(item => item.image)
+      } while (pending.length)
 
       const label = type === 'dangling' ? '无Tag镜像' : '未使用的镜像'
-      fetchImages()
+      await fetchImages()
 
       if (failures.length === 0) {
         setSuccessModal({ isOpen: true, message: `成功清理 ${okCount} 个${label}` })
@@ -179,6 +195,8 @@ export function Images() {
       const errorMsg = error.response?.data?.msg || error.message || '清理镜像失败'
       setError(errorMsg)
       setIsLoading(false)
+    } finally {
+      setPruneProgress('')
     }
   }
 
@@ -256,6 +274,11 @@ export function Images() {
       </div>
 
       {/* 状态消息 */}
+      {pruneProgress && (
+        <div role="status" className="mx-4 sm:mx-6 mt-4 text-sm text-gray-600 dark:text-gray-300 break-all">
+          {pruneProgress}
+        </div>
+      )}
       {error && (
         <div className="mx-4 sm:mx-6 mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-lg flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
