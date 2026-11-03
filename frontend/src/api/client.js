@@ -124,7 +124,7 @@ export const containerAPI = {
   },
   deleteBackup: (filename) => apiClient.delete(`/api/container/backups?filename=${encodeURIComponent(filename)}`),
   backupToCompose: () => apiClient.get('/api/container/backup2compose'),
-  checkUpdate: (id) => apiClient.post(`/api/container/${id}/check-update`, null, { timeout: 45000 }),
+  checkUpdate: (id) => apiClient.post(`/api/container/${id}/check-update`, undefined, { timeout: 45000 }),
 }
 
 // 镜像相关API
